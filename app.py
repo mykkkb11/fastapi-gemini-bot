@@ -1,14 +1,18 @@
 import os
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from google import genai
 import gspread
 from google.oauth2.service_account import Credentials
 
 app = FastAPI()
+security = HTTPBasic()
 
 # ==================== 憑證與設定 ====================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# 設定密碼（優先讀取環境變數 APP_PASSWORD，如果沒有則預設為 "1234"）
+APP_PASSWORD = os.getenv("APP_PASSWORD", "1234")
 
 # Google Sheets 設定
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
@@ -19,6 +23,21 @@ SPREADSHEET_KEY = '1Re3JZ41CB5_a9UrGdru0HfWxMCvoaRpYLfAwSDRgJxI'
 
 # 初始化 Gemini 客戶端
 client = genai.Client(api_key=GEMINI_API_KEY)
+
+
+def verify_password(credentials: HTTPBasicCredentials = Depends(security)):
+    """簡單的密碼驗證函式"""
+    # 帳號可以設定固定的或任意（例如預設帳號 admin），密碼比對 Render 裡的設定
+    correct_password = APP_PASSWORD.encode("utf8")
+    is_correct = credentials.password.encode("utf8") == correct_password
+    
+    if not is_correct:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="密碼錯誤，請重新輸入",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 
 def get_sheets_summary():
@@ -45,9 +64,9 @@ def get_sheets_summary():
         return f"讀取試算表發生錯誤: {str(e)}"
 
 
-# 1. 首頁：顯示網頁查詢介面
+# 1. 首頁：顯示網頁查詢介面（需要通過密碼驗證）
 @app.get("/", response_class=HTMLResponse)
-async def home():
+async def home(username: str = Depends(verify_password)):
     return """
     <!DOCTYPE html>
     <html>
@@ -76,13 +95,12 @@ async def home():
     """
 
 
-# 2. 處理查詢請求並顯示結果頁面
+# 2. 處理查詢請求並顯示結果頁面（同樣需要通過密碼驗證）
 @app.post("/ask", response_class=HTMLResponse)
-async def ask_gemini(user_message: str = Form(...)):
+async def ask_gemini(user_message: str = Form(...), username: str = Depends(verify_password)):
     # 每次收到查詢時，動態讀取最新的 Google 試算表內容
     sheets_data = get_sheets_summary()
     
-    # 優化後的系統提示詞：限制格式，減少雜訊，要求乾淨的條列
     system_prompt = f"""
 你是一個專業的業務詢價單與訂單管理 AI 助理。
 以下是目前從 Google 試算表同步過來的即時資料：
@@ -108,7 +126,6 @@ async def ask_gemini(user_message: str = Form(...)):
     except Exception as e:
         reply_text = f"發生錯誤: {str(e)}"
 
-    # 將結果以排版過的網頁呈現（使用安全的純文字渲染搭配 pre-wrap）
     return f"""
     <!DOCTYPE html>
     <html>

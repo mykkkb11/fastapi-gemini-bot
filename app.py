@@ -122,7 +122,7 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-3.5-flash",
             contents=user_message,
             config={
                 "system_instruction": system_prompt

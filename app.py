@@ -82,19 +82,23 @@ async def ask_gemini(user_message: str = Form(...)):
     # 每次收到查詢時，動態讀取最新的 Google 試算表內容
     sheets_data = get_sheets_summary()
     
-    system_prompt = """
-你是一個專業的業務查詢助手，請根據提供的 Google 試算表內容回答使用者的問題。
+    # 優化後的系統提示詞：限制格式，減少雜訊，要求乾淨的條列
+    system_prompt = f"""
+你是一個專業的業務詢價單與訂單管理 AI 助理。
+以下是目前從 Google 試算表同步過來的即時資料：
+{sheets_data}
 
-【排版與輸出規範】：
-1. 請使用乾淨、整齊的條列式（Bullet points）來呈現查詢結果。
-2. 絕對不要使用 Markdown 的大標題符號（如 `#`, `##`, `###`）。
-3. 欄位與資料請用易讀的對齊方式呈現，避免過多雜亂的星號 `*` 或反斜線。
-4. 如果有多筆記錄，請依照分頁或日期順序清楚分類，讓使用者一目了然。
+請嚴格根據以上資料回答使用者的問題。
+【回覆排版與風格規範】：
+1. 請以親切、清晰的繁體中文回答。
+2. 請使用乾淨、整齊的條列式（Bullet points）來呈現查詢結果。
+3. 請勿使用過多的大標題符號（如 ###），直接用粗體或條列分項即可，讓畫面看起來清爽易讀。
+4. 如果找不到相關資料，請據實以告。
 """
 
     try:
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model="gemini-3.5-flash",
             contents=user_message,
             config={
                 "system_instruction": system_prompt
@@ -104,13 +108,15 @@ async def ask_gemini(user_message: str = Form(...)):
     except Exception as e:
         reply_text = f"發生錯誤: {str(e)}"
 
-    # 將結果以排版過的網頁呈現
+    # 將結果以排版過的網頁呈現，並加入 marked.js 解析 Markdown 語法
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>查詢結果 - 業務訂單 AI 助理</title>
         <meta charset="utf-8">
+        <!-- 引入 marked.js 解析 Markdown 語法 -->
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.js"></script>
         <style>
             body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 0 20px; background: #f4f7f6; }}
             .container {{ background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
@@ -118,7 +124,9 @@ async def ask_gemini(user_message: str = Form(...)):
             .back-btn {{ display: inline-block; margin-bottom: 20px; color: #007bff; text-decoration: none; font-size: 15px; }}
             .back-btn:hover {{ text-decoration: underline; }}
             .question-box {{ background: #e9ecef; padding: 12px; border-radius: 4px; margin-bottom: 20px; color: #495057; }}
-            .result-box {{ padding: 15px; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; white-space: pre-wrap; line-height: 1.6; color: #212529; }}
+            .result-box {{ padding: 15px; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; line-height: 1.6; color: #212529; }}
+            .result-box ul {{ padding-left: 20px; }}
+            .result-box li {{ margin-bottom: 6px; }}
         </style>
     </head>
     <body>
@@ -126,8 +134,17 @@ async def ask_gemini(user_message: str = Form(...)):
             <h2>🔍 查詢結果</h2>
             <a class="back-btn" href="/">← 返回重新查詢</a>
             <div class="question-box"><strong>您的提問：</strong> {user_message}</div>
-            <div class="result-box">{reply_text}</div>
+            <!-- 放置原始 AI 回傳的 Markdown 文字（隱藏，供 JS 解析） -->
+            <div id="raw-markdown" style="display:none;">{reply_text}</div>
+            <!-- 渲染後的乾淨排版結果 -->
+            <div class="result-box" id="rendered-result"></div>
         </div>
+
+        <script>
+            // 自動將 Markdown 轉換成 HTML 顯示，排版更漂亮
+            const rawText = document.getElementById('raw-markdown').textContent;
+            document.getElementById('rendered-result').innerHTML = marked.parse(rawText);
+        </script>
     </body>
     </html>
     """

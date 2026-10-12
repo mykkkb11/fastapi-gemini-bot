@@ -11,7 +11,6 @@ security = HTTPBasic()
 
 # ==================== 憑證與設定 ====================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# 設定密碼（優先讀取環境變數 APP_PASSWORD，如果沒有則預設為 "1234"）
 APP_PASSWORD = os.getenv("APP_PASSWORD", "1234")
 
 # Google Sheets 設定
@@ -27,7 +26,6 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 def verify_password(credentials: HTTPBasicCredentials = Depends(security)):
     """簡單的密碼驗證函式"""
-    # 帳號可以設定固定的或任意（例如預設帳號 admin），密碼比對 Render 裡的設定
     correct_password = APP_PASSWORD.encode("utf8")
     is_correct = credentials.password.encode("utf8") == correct_password
     
@@ -64,7 +62,7 @@ def get_sheets_summary():
         return f"讀取試算表發生錯誤: {str(e)}"
 
 
-# 1. 首頁：顯示網頁查詢介面（需要通過密碼驗證）
+# 1. 首頁：顯示網頁查詢介面
 @app.get("/", response_class=HTMLResponse)
 async def home(username: str = Depends(verify_password)):
     return """
@@ -74,11 +72,11 @@ async def home(username: str = Depends(verify_password)):
         <title>業務訂單與詢價 AI 查詢助理</title>
         <meta charset="utf-8">
         <style>
-            body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 0 20px; background: #f4f7f6; }
+            body { font-family: Arial, sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 20px; background: #f4f7f6; font-size: 16px; }
             .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-            h2 { color: #333; margin-bottom: 20px; }
-            textarea { width: 100%; height: 120px; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; resize: vertical; }
-            button { background: #007bff; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 4px; cursor: pointer; margin-top: 15px; }
+            h2 { color: #333; margin-bottom: 20px; font-size: 24px; }
+            textarea { width: 100%; height: 120px; padding: 14px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; resize: vertical; }
+            button { background: #007bff; color: white; border: none; padding: 14px 28px; font-size: 16px; border-radius: 4px; cursor: pointer; margin-top: 15px; }
             button:hover { background: #0056b3; }
         </style>
     </head>
@@ -95,28 +93,36 @@ async def home(username: str = Depends(verify_password)):
     """
 
 
-# 2. 處理查詢請求並顯示結果頁面（同樣需要通過密碼驗證）
+# 2. 處理查詢請求並顯示結果頁面
 @app.post("/ask", response_class=HTMLResponse)
 async def ask_gemini(user_message: str = Form(...), username: str = Depends(verify_password)):
-    # 每次收到查詢時，動態讀取最新的 Google 試算表內容
     sheets_data = get_sheets_summary()
     
+    # 要求 AI 直接以 HTML 表格 (<table>) 格式回傳，並精確對應你指定的欄位
     system_prompt = f"""
 你是一個專業的業務詢價單與訂單管理 AI 助理。
 以下是目前從 Google 試算表同步過來的即時資料：
 {sheets_data}
 
 請嚴格根據以上資料回答使用者的問題。
-【回覆排版與風格規範】：
-1. 請以親切、清晰的繁體中文回答。
-2. 請使用乾淨、整齊的條列式（Bullet points）來呈現查詢結果。
-3. 請勿使用過多的大標題符號（如 ###），直接用粗體或條列分項即可，讓畫面看起來清爽易讀。
-4. 如果找不到相關資料，請據實以告。
+【回覆排版與格式規範（極重要）】：
+1. 請以親切、清晰的繁體中文簡單回覆摘要說明後，**必須**使用標準的 HTML `<table>` 格式來呈現查詢結果。
+2. 表格的欄位順序與標題必須嚴格對應以下順序：
+   - 狀態
+   - 日期
+   - 規格
+   - 廠牌
+   - 數量
+   - 報價(折數)
+   - 進貨/成本
+   - 備註
+3. 請勿使用 Markdown 的表格語法（例如 |---|），請直接輸出乾淨的 HTML 標籤（如 `<table border="1">`, `<tr>`, `<th>`, `<td>` 等），並為表格加上適當的 CSS 樣式讓外觀整齊美觀（例如加上邊框、內距與背景顏色）。
+4. 如果有多筆資料，請分別列在不同的 `<tr>` 中。找不到資料時請據實以告。
 """
 
     try:
         response = client.models.generate_content(
-            model="gemini-3.5-flash",
+            model="gemini-2.0-flash",
             contents=user_message,
             config={
                 "system_instruction": system_prompt
@@ -124,7 +130,7 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
         )
         reply_text = response.text
     except Exception as e:
-        reply_text = f"發生錯誤: {str(e)}"
+        reply_text = f"<p>發生錯誤: {str(e)}</p>"
 
     return f"""
     <!DOCTYPE html>
@@ -133,13 +139,20 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
         <title>查詢結果 - 業務訂單 AI 助理</title>
         <meta charset="utf-8">
         <style>
-            body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 0 20px; background: #f4f7f6; }}
+            body {{ font-family: Arial, sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 20px; background: #f4f7f6; font-size: 16px; }}
             .container {{ background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
-            h2 {{ color: #333; }}
-            .back-btn {{ display: inline-block; margin-bottom: 20px; color: #007bff; text-decoration: none; font-size: 15px; }}
+            h2 {{ color: #333; font-size: 24px; }}
+            .back-btn {{ display: inline-block; margin-bottom: 20px; color: #007bff; text-decoration: none; font-size: 16px; }}
             .back-btn:hover {{ text-decoration: underline; }}
-            .question-box {{ background: #e9ecef; padding: 12px; border-radius: 4px; margin-bottom: 20px; color: #495057; }}
-            .result-box {{ padding: 15px; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; white-space: pre-wrap; line-height: 1.6; color: #212529; }}
+            .question-box {{ background: #e9ecef; padding: 14px; border-radius: 4px; margin-bottom: 20px; color: #495057; font-size: 16px; }}
+            .result-box {{ padding: 15px; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; line-height: 1.6; color: #212529; overflow-x: auto; }}
+            
+            /* 表格美化樣式：字體加大、欄位區分清楚、有框線與間距 */
+            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 15px; }}
+            th, td {{ border: 1px solid #cbd5e1; padding: 12px 14px; text-align: left; }}
+            th {{ background-color: #f1f5f9; color: #334155; font-weight: bold; }}
+            tr:nth-child(even) {{ background-color: #f8fafc; }}
+            tr:hover {{ background-color: #f1f5f9; }}
         </style>
     </head>
     <body>

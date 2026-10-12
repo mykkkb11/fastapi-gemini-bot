@@ -108,15 +108,13 @@ async def ask_gemini(user_message: str = Form(...)):
     except Exception as e:
         reply_text = f"發生錯誤: {str(e)}"
 
-    # 將結果以排版過的網頁呈現，並加入 marked.js 解析 Markdown 語法
+    # 將結果以排版過的網頁呈現（使用安全的純文字渲染搭配 pre-wrap）
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>查詢結果 - 業務訂單 AI 助理</title>
         <meta charset="utf-8">
-        <!-- 引入 marked.js 解析 Markdown 語法 -->
-        <script src="https://cdn.jsdelivr.net/npm/marked/marked.js"></script>
         <style>
             body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 0 20px; background: #f4f7f6; }}
             .container {{ background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
@@ -124,9 +122,7 @@ async def ask_gemini(user_message: str = Form(...)):
             .back-btn {{ display: inline-block; margin-bottom: 20px; color: #007bff; text-decoration: none; font-size: 15px; }}
             .back-btn:hover {{ text-decoration: underline; }}
             .question-box {{ background: #e9ecef; padding: 12px; border-radius: 4px; margin-bottom: 20px; color: #495057; }}
-            .result-box {{ padding: 15px; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; line-height: 1.6; color: #212529; }}
-            .result-box ul {{ padding-left: 20px; }}
-            .result-box li {{ margin-bottom: 6px; }}
+            .result-box {{ padding: 15px; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; white-space: pre-wrap; line-height: 1.6; color: #212529; }}
         </style>
     </head>
     <body>
@@ -134,17 +130,8 @@ async def ask_gemini(user_message: str = Form(...)):
             <h2>🔍 查詢結果</h2>
             <a class="back-btn" href="/">← 返回重新查詢</a>
             <div class="question-box"><strong>您的提問：</strong> {user_message}</div>
-            <!-- 放置原始 AI 回傳的 Markdown 文字（隱藏，供 JS 解析） -->
-            <div id="raw-markdown" style="display:none;">{reply_text}</div>
-            <!-- 渲染後的乾淨排版結果 -->
-            <div class="result-box" id="rendered-result"></div>
+            <div class="result-box">{reply_text}</div>
         </div>
-
-        <script>
-            // 自動將 Markdown 轉換成 HTML 顯示，排版更漂亮
-            const rawText = document.getElementById('raw-markdown').textContent;
-            document.getElementById('rendered-result').innerHTML = marked.parse(rawText);
-        </script>
     </body>
     </html>
     """

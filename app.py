@@ -1,24 +1,13 @@
 import os
-from fastapi import FastAPI, Request, HTTPException
-from linebot.v3 import WebhookHandler
-from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import (
-    Configuration,
-    ApiClient,
-    MessagingApi,
-    ReplyMessageRequest,
-    TextMessage,
-)
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse
 from google import genai
 import gspread
 from google.oauth2.service_account import Credentials
 
 app = FastAPI()
 
-# ==================== 憑證設定 ====================
-CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
-CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
+# ==================== 憑證與設定 ====================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Google Sheets 設定
@@ -28,9 +17,7 @@ GC = gspread.authorize(CREDS)
 SPREADSHEET_KEY = '1Re3JZ41CB5_a9UrGdru0HfWxMCvoaRpYLfAwSDRgJxI'
 # ====================================================
 
-# 初始化 LINE 與 Gemini 客戶端
-handler = WebhookHandler(CHANNEL_SECRET)
-configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
+# 初始化 Gemini 客戶端
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 
@@ -58,27 +45,43 @@ def get_sheets_summary():
         return f"讀取試算表發生錯誤: {str(e)}"
 
 
-@app.post("/callback")
-async def callback(request: Request):
-    signature = request.headers.get("X-Line-Signature", "")
-    body = (await request.body()).decode("utf-8")
+# 1. 首頁：顯示網頁查詢介面
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>業務訂單與詢價 AI 查詢助理</title>
+        <meta charset="utf-8">
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 0 20px; background: #f4f7f6; }
+            .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+            h2 { color: #333; margin-bottom: 20px; }
+            textarea { width: 100%; height: 120px; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; resize: vertical; }
+            button { background: #007bff; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 4px; cursor: pointer; margin-top: 15px; }
+            button:hover { background: #0056b3; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>📊 業務訂單與詢價 AI 查詢助理</h2>
+            <form action="/ask" method="post">
+                <textarea name="user_message" placeholder="請輸入您想查詢的內容（例如：某某客戶的報價是多少？最近有哪些已成交的訂單？）..."></textarea><br>
+                <button type="submit">送出查詢</button>
+            </form>
+        </div>
+    </body>
+    </html>
+    """
 
-    try:
-        await handler.handle(body, signature)
-    except InvalidSignatureError:
-        raise HTTPException(status_code=400, detail="Invalid signature")
 
-    return "OK"
-
-
-@handler.add(MessageEvent, message=TextMessageContent)
-def handle_message(event):
-    user_message = event.message.text
-    
-    # 1. 每次收到訊息時，動態讀取最新的 Google 試算表內容
+# 2. 處理查詢請求並顯示結果頁面
+@app.post("/ask", response_class=HTMLResponse)
+async def ask_gemini(user_message: str = Form(...)):
+    # 每次收到查詢時，動態讀取最新的 Google 試算表內容
     sheets_data = get_sheets_summary()
     
-    # 2. 設定 Gemini 的系統提示詞，把試算表內容作為背景知識
     system_prompt = f"""
 你是一個專業的業務詢價單與訂單管理 AI 助理。
 以下是目前從 Google 試算表同步過來的即時資料：
@@ -88,7 +91,6 @@ def handle_message(event):
 """
 
     try:
-        # 3. 呼叫 Gemini 進行智慧分析與回答
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=user_message,
@@ -98,15 +100,32 @@ def handle_message(event):
         )
         reply_text = response.text
     except Exception as e:
-        print(f"Gemini API Error: {str(e)}")
         reply_text = f"發生錯誤: {str(e)}"
-        
-    # 4. 透過 LINE Reply API 將 Gemini 的回答傳回給使用者
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        line_bot_api.reply_message(
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text=reply_text)],
-            )
-        )
+
+    # 將結果以排版過的網頁呈現
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>查詢結果 - 業務訂單 AI 助理</title>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 0 20px; background: #f4f7f6; }}
+            .container {{ background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
+            h2 {{ color: #333; }}
+            .back-btn {{ display: inline-block; margin-bottom: 20px; color: #007bff; text-decoration: none; font-size: 15px; }}
+            .back-btn:hover {{ text-decoration: underline; }}
+            .question-box {{ background: #e9ecef; padding: 12px; border-radius: 4px; margin-bottom: 20px; color: #495057; }}
+            .result-box {{ padding: 15px; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; white-space: pre-wrap; line-height: 1.6; color: #212529; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>🔍 查詢結果</h2>
+            <a class="back-btn" href="/">← 返回重新查詢</a>
+            <div class="question-box"><strong>您的提問：</strong> {user_message}</div>
+            <div class="result-box">{reply_text}</div>
+        </div>
+    </body>
+    </html>
+    """

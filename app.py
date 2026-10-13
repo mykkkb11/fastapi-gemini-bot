@@ -1,10 +1,3 @@
-這個 503 UNAVAILABLE 錯誤代表 Google 伺服器端目前該模型的流量過載或正在經歷短暫的高峰需求（High Demand）。這是 Google 官方伺服器的狀況，通常過幾秒鐘或重新整理後就會恢復。
-
-不過，為了讓您的網頁更加穩定、不會一遇到伺服器忙碌就直接跳出醜陋的錯誤訊息，我們可以在程式碼中加入自動重試機制（Retry mechanism），或是稍微調整一下。
-
-您可以直接使用下方這份更新後的完整程式碼，裡面已經幫您升級了表格排版、放大字體與寬度，同時具備更好的容錯能力：
-
-Python
 import os
 import time
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status

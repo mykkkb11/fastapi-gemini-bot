@@ -1,4 +1,12 @@
+這個 503 UNAVAILABLE 錯誤代表 Google 伺服器端目前該模型的流量過載或正在經歷短暫的高峰需求（High Demand）。這是 Google 官方伺服器的狀況，通常過幾秒鐘或重新整理後就會恢復。
+
+不過，為了讓您的網頁更加穩定、不會一遇到伺服器忙碌就直接跳出醜陋的錯誤訊息，我們可以在程式碼中加入自動重試機制（Retry mechanism），或是稍微調整一下。
+
+您可以直接使用下方這份更新後的完整程式碼，裡面已經幫您升級了表格排版、放大字體與寬度，同時具備更好的容錯能力：
+
+Python
 import os
+import time
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -98,7 +106,6 @@ async def home(username: str = Depends(verify_password)):
 async def ask_gemini(user_message: str = Form(...), username: str = Depends(verify_password)):
     sheets_data = get_sheets_summary()
     
-    # 要求 AI 直接以 HTML 表格 (<table>) 格式回傳，並精確對應你指定的欄位
     system_prompt = f"""
 你是一個專業的業務詢價單與訂單管理 AI 助理。
 以下是目前從 Google 試算表同步過來的即時資料：
@@ -116,21 +123,29 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
    - 報價(折數)
    - 進貨/成本
    - 備註
-3. 請勿使用 Markdown 的表格語法（例如 |---|），請直接輸出乾淨的 HTML 標籤（如 `<table border="1">`, `<tr>`, `<th>`, `<td>` 等），並為表格加上適當的 CSS 樣式讓外觀整齊美觀（例如加上邊框、內距與背景顏色）。
+3. 請勿使用 Markdown 的表格語法（例如 |---|），請直接輸出乾淨的 HTML 標籤（如 `<table border="1">`, `<tr>`, `<th>`, `<td>` 等），並為表格加上適當的 CSS 樣式讓外觀整齊美觀。
 4. 如果有多筆資料，請分別列在不同的 `<tr>` 中。找不到資料時請據實以告。
 """
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.5-flash",
-            contents=user_message,
-            config={
-                "system_instruction": system_prompt
-            }
-        )
-        reply_text = response.text
-    except Exception as e:
-        reply_text = f"<p>發生錯誤: {str(e)}</p>"
+    reply_text = ""
+    # 簡單的重試機制：若遇 503 忙碌可自動重試最多 2 次
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.5-flash",
+                contents=user_message,
+                config={
+                    "system_instruction": system_prompt
+                }
+            )
+            reply_text = response.text
+            break
+        except Exception as e:
+            if "503" in str(e) and attempt < max_retries - 1:
+                time.sleep(2)  # 等待 2 秒後重試
+                continue
+            reply_text = f"<p>系統目前比較忙碌或發生錯誤 ({str(e)})，請稍後點擊返回重新查詢。</p>"
 
     return f"""
     <!DOCTYPE html>
@@ -147,7 +162,7 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
             .question-box {{ background: #e9ecef; padding: 14px; border-radius: 4px; margin-bottom: 20px; color: #495057; font-size: 16px; }}
             .result-box {{ padding: 15px; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; line-height: 1.6; color: #212529; overflow-x: auto; }}
             
-            /* 表格美化樣式：字體加大、欄位區分清楚、有框線與間距 */
+            /* 表格美化樣式 */
             table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 15px; }}
             th, td {{ border: 1px solid #cbd5e1; padding: 12px 14px; text-align: left; }}
             th {{ background-color: #f1f5f9; color: #334155; font-weight: bold; }}

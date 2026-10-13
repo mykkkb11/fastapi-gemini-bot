@@ -50,12 +50,12 @@ def get_sheets_summary():
             rows = ws.get_all_values()
             if len(rows) <= 1:
                 continue
-            summary_lines.append(f"--- 分頁: {ws.title} ---")
             for row in rows[1:]:
                 if len(row) < 11:
                     continue
-                status = "已成交" if str(row[0]).upper() == "TRUE" else "未成交/詢價中"
-                line = f"狀態: {status} | 日期: {row[1]} | 客戶: {row[2]} {row[3]} | 規格: {row[4]} | 廠牌: {row[5]} | 數量: {row[6]} | 成本: {row[7]} | 報價: {row[8]} | 折數: {row[9]} | 備註: {row[10]}"
+                status_val = "成交" if str(row[0]).upper() == "TRUE" else "未成交"
+                # 包含工作表名稱 (ws.title) 傳遞給 AI
+                line = f"工作表: {ws.title} | 狀態: {status_val} | 日期: {row[1]} | 客戶: {row[2]} {row[3]} | 規格: {row[4]} | 廠牌: {row[5]} | 數量: {row[6]} | 成本: {row[7]} | 報價: {row[8]} | 折數: {row[9]} | 備註: {row[10]}"
                 summary_lines.append(line)
                 
         return "\n".join(summary_lines)
@@ -73,11 +73,11 @@ async def home(username: str = Depends(verify_password)):
         <title>業務訂單與詢價 AI 查詢助理</title>
         <meta charset="utf-8">
         <style>
-            body { font-family: Arial, sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 20px; background: #f4f7f6; font-size: 16px; }
-            .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-            h2 { color: #333; margin-bottom: 20px; font-size: 24px; }
-            textarea { width: 100%; height: 120px; padding: 14px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; resize: vertical; }
-            button { background: #007bff; color: white; border: none; padding: 14px 28px; font-size: 16px; border-radius: 4px; cursor: pointer; margin-top: 15px; }
+            body { font-family: Arial, sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 20px; background: #f4f7f6; font-size: 17px; }
+            .container { background: white; padding: 35px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+            h2 { color: #333; margin-bottom: 20px; font-size: 26px; }
+            textarea { width: 100%; height: 130px; padding: 15px; font-size: 17px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; resize: vertical; }
+            button { background: #007bff; color: white; border: none; padding: 14px 28px; font-size: 17px; border-radius: 4px; cursor: pointer; margin-top: 15px; }
             button:hover { background: #0056b3; }
         </style>
     </head>
@@ -101,23 +101,28 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
     
     system_prompt = f"""
 你是一個專業的業務詢價單與訂單管理 AI 助理。
-以下是目前從 Google 試算表同步過來的即時資料：
+以下是目前從 Google 試算表同步過來的即時資料（內含來源工作表名稱）：
 {sheets_data}
 
 請嚴格根據以上資料回答使用者的問題。
 【回覆排版與格式規範（極重要）】：
 1. 請以親切、清晰的繁體中文簡單回覆摘要說明後，**必須**使用標準的 HTML `<table>` 格式來呈現查詢結果。
-2. 表格的欄位順序與標題必須嚴格對應以下順序：
-   - 狀態
+2. 表格的欄位順序與標題必須嚴格對應以下 10 個欄位順序：
+   - 來源工作表
+   - 狀態（請填入「成交」或「未成交」）
    - 日期
    - 規格
    - 廠牌
    - 數量
-   - 報價(折數)
+   - 報價
+   - 折數
    - 進貨/成本
    - 備註
-3. 請勿使用 Markdown 的表格語法（例如 |---|），請直接輸出乾淨的 HTML 標籤（如 `<table border="1">`, `<tr>`, `<th>`, `<td>` 等），並為表格加上適當的 CSS 樣式讓外觀整齊美觀。
-4. 如果有多筆資料，請分別列在不同的 `<tr>` 中。找不到資料時請據實以告。
+3. 請勿使用 Markdown 的表格語法（例如 |---|），請直接輸出乾淨的 HTML 標籤（如 `<table border="1">`, `<tr>`, `<th>`, `<td>` 等）。
+4. 為了套用顏色標籤，請在輸出「狀態」欄位的 `<td>` 標籤時加上 class 屬性：
+   - 若狀態為成交，請輸出：`<td class="status-yes">成交</td>`
+   - 若狀態為未成交，請輸出：`<td class="status-no">未成交</td>`
+5. 如果有多筆資料，請分別列在不同的 `<tr>` 中。找不到資料時請據實以告。
 """
 
     reply_text = ""
@@ -126,7 +131,7 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model="gemini-3.8-flash",
+                model="gemini-2.0-flash",
                 contents=user_message,
                 config={
                     "system_instruction": system_prompt
@@ -147,20 +152,38 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
         <title>查詢結果 - 業務訂單 AI 助理</title>
         <meta charset="utf-8">
         <style>
-            body {{ font-family: Arial, sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 20px; background: #f4f7f6; font-size: 16px; }}
-            .container {{ background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
-            h2 {{ color: #333; font-size: 24px; }}
-            .back-btn {{ display: inline-block; margin-bottom: 20px; color: #007bff; text-decoration: none; font-size: 16px; }}
+            body {{ font-family: Arial, sans-serif; max-width: 1350px; margin: 40px auto; padding: 0 20px; background: #f4f7f6; font-size: 17px; }}
+            .container {{ background: white; padding: 35px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
+            h2 {{ color: #333; font-size: 26px; }}
+            .back-btn {{ display: inline-block; margin-bottom: 20px; color: #007bff; text-decoration: none; font-size: 17px; }}
             .back-btn:hover {{ text-decoration: underline; }}
-            .question-box {{ background: #e9ecef; padding: 14px; border-radius: 4px; margin-bottom: 20px; color: #495057; font-size: 16px; }}
+            .question-box {{ background: #e9ecef; padding: 15px; border-radius: 4px; margin-bottom: 20px; color: #495057; font-size: 17px; }}
             .result-box {{ padding: 15px; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; line-height: 1.6; color: #212529; overflow-x: auto; }}
             
-            /* 表格美化樣式 */
-            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 15px; }}
+            /* 表格與欄位美化樣式 */
+            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 16px; }}
             th, td {{ border: 1px solid #cbd5e1; padding: 12px 14px; text-align: left; }}
             th {{ background-color: #f1f5f9; color: #334155; font-weight: bold; }}
             tr:nth-child(even) {{ background-color: #f8fafc; }}
             tr:hover {{ background-color: #f1f5f9; }}
+
+            /* 狀態格子專屬樣式：縮小寬度並加上鮮明色彩 */
+            td.status-yes {{
+                background-color: #d1fae5;
+                color: #065f46;
+                font-weight: bold;
+                text-align: center;
+                width: 70px;
+                white-space: nowrap;
+            }}
+            td.status-no {{
+                background-color: #fee2e2;
+                color: #991b1b;
+                font-weight: bold;
+                text-align: center;
+                width: 70px;
+                white-space: nowrap;
+            }}
         </style>
     </head>
     <body>

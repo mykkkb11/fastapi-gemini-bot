@@ -119,9 +119,11 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
    - 進貨/成本
    - 備註
 3. 請勿使用 Markdown 的表格語法（例如 |---|），請直接輸出乾淨的 HTML 標籤（如 `<table border="1">`, `<tr>`, `<th>`, `<td>` 等）。
-4. 為了套用顏色標籤，請在輸出「狀態」欄位的 `<td>` 標籤時加上 class 屬性：
+4. 為了讓指定欄位呈現特定的樣式與置中，請在輸出 `<th>` 或 `<td>` 時加上對應的 class：
+   - 「來源工作表」欄位請輸出：`<td class="col-source">...</td>`
    - 若狀態為成交，請輸出：`<td class="status-yes">成交</td>`
    - 若狀態為未成交，請輸出：`<td class="status-no">未成交</td>`
+   - 「日期」、「廠牌」、「數量」、「報價」、「折數」欄位請加上置中屬性或對應 class。
 5. 如果有多筆資料，請分別列在不同的 `<tr>` 中。找不到資料時請據實以告。
 """
 
@@ -167,6 +169,13 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
             tr:nth-child(even) {{ background-color: #f8fafc; }}
             tr:hover {{ background-color: #f1f5f9; }}
 
+            /* 來源工作表樣式：縮小寬度並置中 */
+            td.col-source, th:nth-child(1) {{
+                width: 90px;
+                text-align: center;
+                white-space: nowrap;
+            }}
+
             /* 狀態格子專屬樣式：縮小寬度並加上鮮明色彩 */
             td.status-yes {{
                 background-color: #d1fae5;
@@ -183,6 +192,12 @@ async def ask_gemini(user_message: str = Form(...), username: str = Depends(veri
                 text-align: center;
                 width: 70px;
                 white-space: nowrap;
+            }}
+
+            /* 指定欄位置中對齊 (來源工作表、狀態、日期、廠牌、數量、報價、折數) */
+            th:nth-child(1), th:nth-child(2), th:nth-child(3), th:nth-child(5), th:nth-child(6), th:nth-child(7), th:nth-child(8),
+            td:nth-child(1), td:nth-child(3), td:nth-child(5), td:nth-child(6), td:nth-child(7), td:nth-child(8) {{
+                text-align: center;
             }}
         </style>
     </head>
